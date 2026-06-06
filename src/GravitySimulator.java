@@ -8,18 +8,50 @@ import java.util.LinkedList;
 public class GravitySimulator extends JPanel {
 
     public static final double G = 0.5;
-    private final ArrayList<Body> bodies = new ArrayList<>();
+    private ArrayList<Body> bodies = new ArrayList<>();
+    private ArrayList<Body> suns = new ArrayList<>();
 
     private Point mouseStart = null;
     private Point mouseCurrent = null;
     private boolean isDrag = false;
 
-
     public GravitySimulator() {
+        title();
+    }
+
+    public void title(){
+        removeAll();
+        JLabel title = new JLabel(new ImageIcon("title.png"));
+        title.setBounds(0,0,1200,800);
+        JButton button = new JButton("Kepler's Laws");
+        button.setBounds(700,300,150,50);
+        button.setFont(new Font("SansSerif", Font.BOLD, 16));
+        button.setBackground(Color.WHITE);
+        button.setForeground(Color.DARK_GRAY);
+        button.setFocusPainted(false);
+        title.add(button);
+        add(title);
+
+        button.addActionListener(l->keplerMotion());
+    }
+
+    public void keplerMotion() {
+        removeAll();
+        bodies = new ArrayList<>();
+        suns = new ArrayList<>();
         setBackground(Color.BLACK);
 
+        JButton button = new JButton("Home");
+        button.setBounds(30,30,125,30);
+        button.setFont(new Font("SansSerif", Font.BOLD, 16));
+        button.setBackground(Color.WHITE);
+        button.setForeground(Color.DARK_GRAY);
+        button.setFocusPainted(false);
+        add(button);
+
         // The sun
-        bodies.add(new Body(600, 400, 0, 0, 20000, 60, Color.YELLOW));
+        bodies.add(new Body(600, 400, 0, 0, 20000, 60, true));
+        suns.add(bodies.get(0));
 
         // The mouse logic
         MouseAdapter mouseHandler = new MouseAdapter() {
@@ -27,7 +59,7 @@ public class GravitySimulator extends JPanel {
             public void mousePressed(MouseEvent e) {
                 mouseStart = e.getPoint();
                 mouseCurrent = e.getPoint();
-                isDrag = true;
+                isDrag = !SwingUtilities.isRightMouseButton(e);
             }
 
             @Override
@@ -49,8 +81,13 @@ public class GravitySimulator extends JPanel {
                     double launchVx = dx * 0.05;
                     double launchVy = dy * 0.05;
 
-                    bodies.add(new Body(mouseStart.x, mouseStart.y, launchVx, launchVy, 10, 12, Color.CYAN));
+                    bodies.add(new Body(mouseStart.x, mouseStart.y, launchVx, launchVy, 10, 12, false));
 
+                    repaint();
+                }
+                if(SwingUtilities.isRightMouseButton(e)){
+                    bodies.add(new Body(e.getX(), e.getY(), 0, 0, 20000, 60, true));
+                    suns.add(bodies.getLast());
                     repaint();
                 }
             }
@@ -67,6 +104,11 @@ public class GravitySimulator extends JPanel {
             repaint();
         });
         timer.start();
+        button.addActionListener(l-> {
+            timer.stop();
+            title();
+            repaint();
+        });
     }
 
     @Override
@@ -75,15 +117,13 @@ public class GravitySimulator extends JPanel {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Draws the trails
         for (Body body : bodies) {
-            g2.setColor(new Color(body.color.getRed(), body.color.getGreen(), body.color.getBlue(), 75)); // Faded trail
+            g2.setColor(new Color(body.color.getRed(), body.color.getGreen(), body.color.getBlue(), 75));
             for (Point p : body.trail) {
                 g2.fillOval(p.x -2, p.y -2, 4, 4);
             }
         }
 
-        // Draw the planets and sun
         for (Body body : bodies) {
             g2.setColor(body.color);
             g2.fillOval(
@@ -94,7 +134,6 @@ public class GravitySimulator extends JPanel {
             );
         }
 
-        // Draws the slingshot line
         if (isDrag && mouseStart != null && mouseCurrent != null) {
             g2.setColor(Color.WHITE);
             g2.setStroke(new BasicStroke(2));
@@ -105,46 +144,67 @@ public class GravitySimulator extends JPanel {
 
     private void updatePhysics(double dt) {
         if (bodies.isEmpty()) return;
-        Body sun = bodies.get(0);
 
-        for (int i = bodies.size() - 1; i >= 1; i--) {
+        for (int i = 0; i < bodies.size(); i++) {
             Body a = bodies.get(i);
+            for (int j = i + 1; j < bodies.size(); j++) {
+                Body b = bodies.get(j);
 
-            double dx = sun.x - a.x;
-            double dy = sun.y - a.y;
-            double distSq = dx * dx + dy * dy;
-            double dist = Math.sqrt(distSq);
+                double dx = b.x - a.x;
+                double dy = b.y - a.y;
+                double distSq = dx * dx + dy * dy;
+                double dist = Math.sqrt(distSq);
 
-            if (dist < (sun.radius / 2 + a.radius / 2)) {
-                bodies.remove(i);
-                continue;
-            }
+                if (dist < 1) continue;
 
-            double force = G * a.mass * sun.mass / distSq;
-            double ratx = dx / dist;
-            double raty = dy / dist;
+                double force = G * a.mass * b.mass / distSq;
+                double ax = (dx / dist) * (force / a.mass);
+                double ay = (dy / dist) * (force / a.mass);
+                double bx = (-dx / dist) * (force / b.mass);
+                double by = (-dy / dist) * (force / b.mass);
 
-            double ax = ratx * (force / a.mass);
-            double ay = raty * (force / a.mass);
-
-            a.vx += ax * dt;
-            a.vy += ay * dt;
-        }
-
-        for (int i = 1; i < bodies.size(); i++) {
-            Body b = bodies.get(i);
-            b.x += b.vx * dt;
-            b.y += b.vy * dt;
-
-            b.trailCount++;
-            if (b.trailCount >= 5) {
-                b.trail.add(new Point((int) b.x, (int) b.y));
-                if (b.trail.size() > 40) {
-                    b.trail.removeFirst();
+                if (!a.isStar) {
+                    a.vx += ax * dt;
+                    a.vy += ay * dt;
                 }
-                b.trailCount = 0;
+                if (!b.isStar) {
+                    b.vx += bx * dt;
+                    b.vy += by * dt;
+                }
             }
         }
+
+        for (Body b : bodies) {
+            if (!b.isStar) {
+                b.x += b.vx * dt;
+                b.y += b.vy * dt;
+
+                b.trailCount++;
+                if (b.trailCount >= 5) {
+                    b.trail.add(new Point((int) b.x, (int) b.y));
+                    if (b.trail.size() > 40) {
+                        b.trail.removeFirst();
+                    }
+                    b.trailCount = 0;
+                }
+            }
+        }
+
+        ArrayList<Body> toRemove = new ArrayList<>();
+        for (Body b : bodies) {
+            if (b.isStar) continue;
+            for (Body sun : suns) {
+                double dx = sun.x - b.x;
+                double dy = sun.y - b.y;
+                double dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < (sun.radius / 2 + b.radius / 2)) {
+                    toRemove.add(b);
+                    break;
+                }
+            }
+        }
+        bodies.removeAll(toRemove);
     }
 
     static class Body {
@@ -153,18 +213,20 @@ public class GravitySimulator extends JPanel {
         double mass;
         double radius;
         Color color;
+        boolean isStar;
 
         LinkedList<Point> trail = new LinkedList<>();
         int trailCount = 0;
 
-        public Body(double x, double y, double vx, double vy, double mass, double radius, Color color) {
+        public Body(double x, double y, double vx, double vy, double mass, double radius, boolean isStar) {
             this.x = x;
             this.y = y;
             this.vx = vx;
             this.vy = vy;
             this.mass = mass;
             this.radius = radius;
-            this.color = color;
+            this.isStar = isStar;
+            this.color = new Color((int) (Math.random()*255), (int) (Math.random()*255), (int) (Math.random()*255));
         }
     }
 
